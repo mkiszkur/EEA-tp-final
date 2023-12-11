@@ -1,0 +1,1195 @@
+---
+title: "EEA 2023 - Trabajo Final - Argento Fernando - Kiszkurno Miguel"
+output:
+  html_document:
+    df_print: paged
+---
+
+# Setup
+
+```{r limpieza memoria}
+# limpio la memoria
+rm(list = ls()) # remove all objects
+gc() # garbage collection
+
+knitr::opts_knit$set(root.dir = "/Users/miguelkiszkurno/Documents/EEA-tp-final")
+
+```
+
+```{r librerias, warning=FALSE, message=FALSE}
+
+# Importo las librerías que voy a usar
+#install.packages("robustbase")
+
+library(tidyverse)
+library(corrr)
+library(knitr)
+library(kableExtra)
+library(GGally)
+library(tidymodels)
+library(rsample)
+library(ggplot2)
+library(robustbase)
+
+```
+
+```{r working directory}
+# Establezco el Working Directory
+#setwd("/Users/miguelkiszkurno/Documents/EEA-tp-final") 
+
+#Semilla que voy a usar durante la notebook
+semilla = 730 
+```
+
+#Análisis estructura y correlación
+
+```{r cargar datos}
+# cargo los datos en dataset
+
+#Dataset de train
+cat (getwd())
+
+ds <- read.table(paste0("/Users/miguelkiszkurno/Documents/EEA-tp-final/datasets/ENFR-2018-Base usuario.txt"),
+                        sep="|", dec=".", header = TRUE, fill = TRUE)
+
+#Vista general del dataset
+glimpse(ds)
+
+```
+
+```{r}
+#Confirmamos que no hay registros de gente menor de 18 años
+ds_mayores <- ds[ds$bhch04 >= 18,]
+
+# Contar registros con bhch04 >= 18
+n_mayor18 <- nrow(ds_mayores)
+
+# Contar registros con bhch04 < 18 
+n_menor18 <- nrow(ds) - n_mayor18
+
+# Imprimir recuentos
+print(paste("Registros con bhch04 >= 18:", n_mayor18))
+print(paste("Registros con bhch04 < 18:", n_menor18))
+```
+
+
+```{r valores unicos y faltantes}
+
+#Miro los valores unicos y los datos faltantes
+tabla_exploratorios =  ds %>%
+                                      gather(., 
+                                            key = "variables", 
+                                            value = "valores") %>% # agrupamos por las variables del set
+                                      group_by(variables) %>% 
+                                      summarise(valores_unicos = n_distinct(valores),
+                                      porcentaje_faltantes = sum(is.na(valores))/nrow(ds)*100) %>% 
+                                      arrange(desc(porcentaje_faltantes), valores_unicos) # ordenamos por porcentaje de 
+
+#Visualizo la tabla
+tabla_exploratorios
+
+```
+
+No hay datas faltantes en ninguna columna, pero ***ano4*** y ***trimestre*** tienen un único posible valor. Asi que no aportan ningún tipo de información. Las eliminamos del dataset para simplificar.
+
+```{r eliminar variables innecesarias}
+
+#Elimino las columnas del dataset
+ds <- subset(ds, select = -c(ano4, trimestre))
+ds_test <- subset(ds_test, select = -c(ano4, trimestre))
+ds_outliers <- subset(ds_outliers, select = -c(ano4, trimestre))
+
+
+```
+
+Las variables ***region***, ***aglomerado***, ***asistencia_educacion***, ***nivel_ed***, ***tipo_establecimiento***, ***codigo_actividad***, ***sexo***, ***categoria_ocupacion***, ***cat_cantidad_empleos*** y ***alfabetismo*** son categóricas. Asi que las voy a convertir a factor. En el caso de ***nivel_ed*** hay un orden bastante claro. En el resto hay casos donde no hay orden, y hay casos donde es discutible.
+
+```{r Valores unicos de las variables Factor}
+
+#Solo quiero mirar que valores tienen las variables de tipo factor.
+regiones <- data.frame(campo = "region", valor = unique(ds$region))
+aglomerados <- data.frame(campo = "aglomerado", valor = unique(ds$aglomerado))
+asistencia_educacion <- data.frame(campo = "asistencia_educacion", valor = unique(ds$asistencia_educacion))
+nivel_educacion <- data.frame(campo = "nivel_educacion", valor = unique(ds$nivel_ed))
+tipo_establecimiento <- data.frame(campo = "tipo_establecimiento", valor = unique(ds$tipo_establecimiento))
+codigo_actividad <- data.frame(campo = "codigo_actividad", valor = unique(ds$codigo_actividad))
+sexo <- data.frame(campo = "sexo", valor = unique(ds$sexo))
+categoria_ocupacion <- data.frame(campo = "categoria_ocupacion", valor = unique(ds$categoria_ocupacion))
+cat_cantidad_empleos <- data.frame(campo = "cat_cantidad_empleos", valor = unique(ds$cat_cantidad_empleos))
+alfabetismo <- data.frame(campo = "alfabetismo", valor = unique(ds$alfabetismo))
+
+
+# Combina los dataframes en uno solo
+df_valores_unicos <- do.call(rbind, list(regiones, aglomerados, asistencia_educacion, nivel_educacion, tipo_establecimiento, codigo_actividad, sexo, categoria_ocupacion, cat_cantidad_empleos, alfabetismo))
+
+# Muestra el nuevo dataframe
+df_valores_unicos
+
+
+```
+
+Ahora las vamos a convertir a tipo factor
+
+```{r convertir a variables factor}
+
+#Train
+ds$region <- factor(ds$region)
+ds$aglomerado <- factor(ds$aglomerado)
+ds$asistencia_educacion <- factor(ds$asistencia_educacion)
+
+#nivel_ed tiene un orden claro
+ds$nivel_ed <- factor(ds$nivel_ed, levels = c("Primaria Incompleta", "Primaria Completa", "Secundaria Incompleta", "Secundaria Completa", "Superior Universitaria Incompleta", "Superior Universitaria Completa"))
+
+ds$tipo_establecimiento <- factor(ds$tipo_establecimiento)
+ds$codigo_actividad <- factor(ds$codigo_actividad)
+ds$sexo <- factor(ds$sexo)
+ds$categoria_ocupacion <- factor(ds$categoria_ocupacion)
+ds$cat_cantidad_empleos <- factor(ds$cat_cantidad_empleos)
+ds$alfabetismo <- factor(ds$alfabetismo)
+
+
+#Test
+ds_test$region <- factor(ds_test$region)
+ds_test$aglomerado <- factor(ds_test$aglomerado)
+ds_test$asistencia_educacion <- factor(ds_test$asistencia_educacion)
+
+#nivel_ed tiene un orden claro
+ds_test$nivel_ed <- factor(ds_test$nivel_ed, levels = c("Primaria Incompleta", "Primaria Completa", "Secundaria Incompleta", "Secundaria Completa", "Superior Universitaria Incompleta", "Superior Universitaria Completa"))
+
+ds_test$tipo_establecimiento <- factor(ds_test$tipo_establecimiento)
+ds_test$codigo_actividad <- factor(ds_test$codigo_actividad)
+ds_test$sexo <- factor(ds_test$sexo)
+ds_test$categoria_ocupacion <- factor(ds_test$categoria_ocupacion)
+ds_test$cat_cantidad_empleos <- factor(ds_test$cat_cantidad_empleos)
+ds_test$alfabetismo <- factor(ds_test$alfabetismo)
+
+
+
+#Train con outliers
+
+ds_outliers$region <- factor(ds_outliers$region)
+ds_outliers$aglomerado <- factor(ds_outliers$aglomerado)
+ds_outliers$asistencia_educacion <- factor(ds_outliers$asistencia_educacion)
+
+#nivel_ed tiene un orden claro
+ds_outliers$nivel_ed <- factor(ds_outliers$nivel_ed, levels = c("Primaria Incompleta", "Primaria Completa", "Secundaria Incompleta", "Secundaria Completa", "Superior Universitaria Incompleta", "Superior Universitaria Completa"))
+
+ds_outliers$tipo_establecimiento <- factor(ds_outliers$tipo_establecimiento)
+ds_outliers$codigo_actividad <- factor(ds_outliers$codigo_actividad)
+ds_outliers$sexo <- factor(ds_outliers$sexo)
+ds_outliers$categoria_ocupacion <- factor(ds_outliers$categoria_ocupacion)
+ds_outliers$cat_cantidad_empleos <- factor(ds_outliers$cat_cantidad_empleos)
+ds_outliers$alfabetismo <- factor(ds_outliers$alfabetismo)
+
+```
+
+Volvemos a mirar a ver como quedaron
+
+```{r chequear dataset}
+# Vuelvo a mirar como quedan
+# Vista general del dataset
+glimpse(ds)
+```
+
+Ahora vamos a mirar algunas métricas descriptivas de las distintas variable numéricas del dataset.
+
+```{r Metricas descriptivas}
+
+#Miramos el mínimo, la media, etc. de las variables.
+metricas <- ds %>%
+      select_if(is.numeric) %>% 
+      gather(., 
+             key = "variable", 
+             value = "valores") %>% # agrupamos por las variables del set
+             group_by(variable) %>%
+                  summarise(minimo = min(valores),
+                            media = mean(valores),
+                            mediana = median(valores),
+                            desvio = sd(valores),
+                            maximo = max(valores) ) %>% 
+                                      arrange(variable) # orden
+metricas
+
+```
+
+El campo ***salario_horario*** , que es la variable que vamos a intentar explicar parece tener una dispersion bastante grande. El máximo de la experiencia potencial también parece ser muy alto. Vamos a mirar la relación entre las variables numéricas (con apertura por la variable sexo tal como lo pide el enunciado).
+
+```{r relacion entre variables numericas, message=FALSE, warning=FALSE, fig.width=8, fig.height=8}
+
+#Miro la relación entre las variables 
+numericas <- ds %>%
+  select(where(is.numeric), sexo)
+
+ggpairs(numericas,  mapping = aes(color = sexo))
+
+```
+
+El campo ***experiencia_potencial*** está muy correlacionado con la edad, y en menor medida (y en sentido negativo) con la ***educacion***. Esto tiene sentido porque estas dos variables se utilizan para calcularla.
+La correlación mas grande de ***salario_horario*** se da con ***educación*** (aunque es baja). Lo cual a priori tiene sentido (es esperable que cuanto mas capacitado uno esta, acceda a trabajos mejor remunerados).
+Se ven muchos posibles outliers en la variable salario_horario
+Ahora vamos a mirar mas específicamente las correlaciones:
+
+```{r Matriz correlacion, message=FALSE}
+
+ds %>% 
+ correlate() %>% # convierte la matriz de corr en dataframe
+  shave() %>% # solo muestra información debajo de la diagonal principal
+  fashion() # acomoda los datos en forma tidy (por ej. redondeo de decimales)
+
+ds %>% 
+ correlate() %>% 
+  rplot()
+```
+
+
+Las conclusiones no cambian. Pero ahora quiero mirar un poco mas en detalle la variable ***salario_horario***
+
+Me traje los nombres de los aglomerados para facilitar el analisis.
+
+```{r Nombre aglomerados}
+
+#codigos de aglomerado
+codigo_aglomerado <- c("2", "3", "4", "5", "6", "7", "8", "9", "10", "12", "13", "14", "15", "17", "18", "19", "20", "22", "23", "25", "26", "27", "29", "30", "31", "32", "33", "34", "36", "38", "91", "93")
+
+#nombres. Tomados del informe.
+nombre_aglomerado <- c("Gran La Plata", "Bahía Blanca - Cerri", "Gran Rosario", "Gran Santa Fé", "Gran Paraná", "Posadas", "Gran Resistencia", "Comodoro Rivadavia - Rada Tilly", "Gran Mendoza", "Corrientes", "Gran Córdoba", "Concordia", "Formosa", "Neuquén – Plottier", "Santiago del Estero - La Banda", "Jujuy - Palpalá", "Río Gallegos", "Gran Catamarca", "Gran Salta", "La Rioja", "Gran San Luis", "Gran San Juan", "Gran Tucumán - Tafí Viejo", "Santa Rosa – Toay", "Ushuaia - Río Grande", "Ciudad Autónoma de Buenos Aires", "Partidos del GBA", "Mar del Plata", "Río Cuarto", "San Nicolás – Villa Constitución", "Rawson – Trelew", "Viedma – Carmen de Patagones")
+
+#convierto en data frame
+df_region <- data.frame(Codigo = codigo_aglomerado, nombre_aglomerado = nombre_aglomerado)
+
+
+#Agrego los nombres a train
+ds <- ds %>%
+  left_join(df_region, by = c("aglomerado" = "Codigo"))
+
+#tambien tngo que agregarlos al de train con outliers
+ds_outliers <- ds_outliers %>%
+  left_join(df_region, by = c("aglomerado" = "Codigo"))
+
+#solo para visualizar
+ds[,c("aglomerado", "nombre_aglomerado")]
+
+```
+
+Ahora si, vamos a ver la variable mas en detalle
+
+```{r graficar Salario_horario}
+
+
+#miramos salario_horario por Sexo
+ggplot(ds, aes(x = sexo, y = salario_horario, group = sexo, fill = sexo))+
+  geom_boxplot() +
+  scale_y_continuous(limits = c(0, 5000)) # definimos escala del eje y
+
+
+#miramos salario_horario por Region
+ggplot(ds, aes(x = region, y = salario_horario, group = region, fill = region))+
+  geom_boxplot() +
+  scale_y_continuous(limits = c(0, 5000)) # definimos escala del eje y
+
+#miramos salario_horario por Aglomerado
+ggplot(ds, aes(x = fct_reorder(nombre_aglomerado, salario_horario, .desc = T), y = salario_horario, group = nombre_aglomerado, fill = nombre_aglomerado))+
+  geom_boxplot() +
+  scale_y_continuous(limits = c(0, 5000)) + # definimos escala del eje y
+  theme(legend.position = 'none')+
+  theme (axis.text.x = element_text(face="italic", colour="dark grey", size = 8, angle = 90))
+
+#miramos salario_horario por Asistio o asiste a algun establecimiento educativo
+ggplot(ds, aes(x = asistencia_educacion, y = salario_horario, group = asistencia_educacion, fill = asistencia_educacion))+
+  geom_boxplot() +
+  scale_y_continuous(limits = c(0, 5000)) # definimos escala del eje y
+
+ggplot(ds, aes(x = nivel_ed, y = salario_horario, group = nivel_ed, fill = nivel_ed))+
+  geom_boxplot() +
+  scale_y_continuous(limits = c(0, 5000)) + # definimos escala del eje y
+  theme (axis.text.x = element_text(face="italic", colour="dark grey", size = 8, angle = 90))
+
+ggplot(ds, aes(x = tipo_establecimiento, y = salario_horario, group = tipo_establecimiento, fill = tipo_establecimiento))+
+  geom_boxplot() +
+  scale_y_continuous(limits = c(0, 5000)) # definimos escala del eje y
+
+ggplot(ds, aes(x = fct_reorder(codigo_actividad, salario_horario, .desc = T), y = salario_horario, group = codigo_actividad, fill = codigo_actividad))+
+  geom_boxplot() +
+  scale_y_continuous(limits = c(0, 5000)) + # definimos escala del eje y
+  theme(legend.position = 'none')+
+  theme (axis.text.x = element_text(face="italic", colour="dark grey", size = 8, angle = 90))
+
+
+ggplot(ds, aes(x = categoria_ocupacion, y = salario_horario, group = categoria_ocupacion, fill = categoria_ocupacion))+
+  geom_boxplot() +
+  scale_y_continuous(limits = c(0, 5000)) # definimos escala del eje y
+
+ggplot(ds, aes(x = cat_cantidad_empleos, y = salario_horario, group = cat_cantidad_empleos, fill = cat_cantidad_empleos))+
+  geom_boxplot() +
+  scale_y_continuous(limits = c(0, 5000)) # definimos escala del eje y
+
+ggplot(ds, aes(x = alfabetismo, y = salario_horario, group = alfabetismo, fill = alfabetismo))+
+  geom_boxplot() +
+  scale_y_continuous(limits = c(0, 5000)) # definimos escala del eje y
+
+
+
+```
+
+
+
+
+```{r outliers sueldo}
+limite_superior_outliers = IQR(ds$salario_horario) * 1.5 + quantile(ds$salario_horario, 0.75)[[1]]
+limite_superior_outliers
+```
+
+```{r outliers sueldo 2}
+outliers_sueldo <- ds %>% filter(salario_horario>limite_superior_outliers)
+outliers_sueldo
+```
+
+```{r outliers inferiores}
+limite_inferior_outliers = quantile(ds$salario_horario, 0.25)[[1]] - IQR(ds$salario_horario) * 1.5
+limite_inferior_outliers 
+```
+
+# Ejercicio 2: Modelos lineales experiencia
+
+Se va a comenzar con dos modelos lineales que utilicen la información de la experiencia potencial. Primero, ajustar un modelo de regresión para explicar el salario por hora usando únicamente la experiencia potencial como covariable.
+
+$E(salarioHorario) = \beta_0 +\beta_1 ExperienciaPotencial$
+
+## Modelo 2.1: experiencia potencial
+
+Vamos a crear el primero modelo. No es necesario hacer el split entre train y test porque ya fue realizado por los docentes (disponemos de un dataset de pruebas). 
+
+### Ajuste del modelo
+```{r modelo experiencia potencial}
+			
+# Crear el modelo lineal de la edad
+modelo_experiencia_potencial = lm(formula = salario_horario ~ experiencia_potencial, data = ds)
+
+# Observamos que devuelve el modelo
+tidy_exp_potencial <- tidy(modelo_experiencia_potencial, conf.int = TRUE) %>% arrange(p.value)
+tidy_exp_potencial
+
+# Observamos que devuelve el modelo
+resumen_modelo_experiencia_potencial = summary(modelo_experiencia_potencial)
+resumen_modelo_experiencia_potencial
+
+
+
+```
+El valor del intercepto es 480.9255. Esto significa que el valor de ***salario_horario*** es 480.9255 cuando ***experiencia_potencial*** es igual a cero. el coeficiente de ***experiencia_potencial*** indica que un aumento de un año, en promedio, aumenta 1.8408 en ***salario_horario*** 
+
+Los niveles de significancia ambos coeficientes son altos. 
+
+El R-cuadrado es 0.003617 (0.36%), lo cual es muy bajo, lo que indica que el modelo explica muy poca de la variabilidad de "salario_horario." 
+
+El valor del estadístico F es 31.64, y el valor p es 1.909e-08, lo que indica que el modelo en su conjunto es estadísticamente significativo.
+
+
+Graficamos la curva....
+
+```{r grafico coeficientes}
+# Accedemos a la información de los coeficientes estimados
+intercepto = modelo_experiencia_potencial$coefficients[1]
+pendiente = modelo_experiencia_potencial$coefficients[2]
+
+# Graficamos el dataset y el modelo
+ds %>% ggplot(., aes(x = experiencia_potencial, y = salario_horario)) + 
+  geom_abline(intercept = intercepto, slope = pendiente, color="forestgreen", size=1.5) + # capa del modelo
+  geom_point() + #capa de los datos
+  theme_bw() +
+  scale_x_continuous(limits = c(0,75)) +
+  scale_y_continuous(limits = c(0,5000)) +
+  labs(title="Modelo Lineal Simple: experiencia_potencial", x="experiencia_potencial", y="salario_horario") 
+```
+
+### Diagnóstico del modelo
+
+```{r diagnostico experiencia potencial}
+plot(modelo_experiencia_potencial)
+
+```
+Residuals vs Fitted: Hay una muy leve curva en los extremos, pero no es un claro patron, por lo que interpreto que se satisface el supuesto de homocedasticidad.
+Normal QQ plot: El extremo superior derecho se separa mucho de la distribución teórica, por lo que no parece seguir una distribución normal.
+Scale location: Confirma el supuesto de homocedasticidad. Hay una tendencia hacia arriba en la linea que representa la media a medida que crecen los fitted values, pero es muy leve.
+Residual vs leverage: Existe varios puntos con leverage alto.
+
+
+```{r inferir/predecir 1}
+
+# Realiza las predicciones para 6 años de experiencia potencial
+prediccion_6_anios <- predict(modelo_experiencia_potencial, newdata = data.frame(experiencia_potencial = 6))
+
+# Realiza las predicciones para 35 años de experiencia potencial
+prediccion_35_anios <- predict(modelo_experiencia_potencial, newdata = data.frame(experiencia_potencial = 35))
+
+# Muestra los resultados
+cat("Salario horario esperado para 6 años de experiencia laboral: $", round(prediccion_6_anios, 2), "\n")
+cat("Salario horario esperado para 35 años de experiencia laboral: $", round(prediccion_35_anios, 2), "\n")
+
+
+```
+
+
+### Conclusiones del primer modelo
+
+La variable "experiencia_potencial" está relacionada de manera significativa con el "salario_horario," y un aumento en la experiencia potencial se asocia con un aumento en el salario horario. No obstante, el R-cuadrado es bajo, lo que significa que la variable "experiencia_potencial" por sí sola explica muy poco de la variabilidad en "salario_horario" (tiene que haber otros factores influyentes salario horario).
+
+Diagnostico: El modelo no cumple con el supuesto de distribución normal, pero parece cumplir razonablemente bien el resto.
+
+
+## Modelo 2.2: Experiencia potencial al cuadrado
+
+### Ajuste del modelo
+```{r modelo 2}
+modelo_experiencia_potencial_cuadrado = lm(formula = salario_horario ~ experiencia_potencial + I(experiencia_potencial^2), data = ds)
+modelo_experiencia_potencial_cuadrado
+
+# Observamos que devuelve el modelo
+tidy_exp_potencial_cuadrado <- tidy(modelo_experiencia_potencial_cuadrado, conf.int = TRUE)  %>% arrange(p.value)
+tidy_exp_potencial_cuadrado
+
+resumen_modelo_experiencia_potencial_cuadrado = summary(modelo_experiencia_potencial_cuadrado)
+resumen_modelo_experiencia_potencial_cuadrado
+
+
+```
+
+El valor del intercepto es 387.72725. Esto representa el valor esperado de "salario_horario" cuando "experiencia_potencial" (y obviamente su cuadrado) es igual a cero. 
+Para la experiencia_potencial, tiene su coeficiente de 12.16103 y el cuadratico de -0.2301. Esto significa que con el incremento de 1 año en experiencia_potencial, el salario_horario se ve afectado en relacion con la experiencia_potencial ( ya no es constante). Entonces salario_horario se vera afectado en 12.1603 - 2 * 0.20301 * experiencia_potencial
+
+Residuals (Residuos):
+
+Tanto "experiencia_potencial" como su término cuadrático son estadísticamente significativos en la predicción de "salario_horario." 
+
+El R-cuadrado 0.01428 (con el ajustado en un valor muy cercano), lo que sugiere que aproximadamente el 1.43% de la variabilidad en "salario_horario" se explica por "experiencia_potencial" y su término cuadrático. Si bien es mejor que el modelo 1, sigue siendo bastante bajo. El R-cuadrado ajustado es similar al R-cuadrado múltiple y también es bajo.
+
+El estadístico F mide la globalidad de la relación entre las variables. En este caso, el valor del estadístico F es 84.2, y el valor p es muy cercano a cero, lo que indica que el modelo en su conjunto es estadísticamente significativo. 
+
+### Diagnóstico del modelo
+
+```{r diagnostico experiencia potencial al cuadrado}
+plot(modelo_experiencia_potencial_cuadrado)
+
+```
+Residuals vs Fitted: Se ve una estructura, por lo que interpreto que nos se satisface el supuesto de homocedasticidad.
+Normal QQ plot: El extremo superior derecho se separa mucho de la distribución teórica, por lo que no parece seguir una distribución normal.
+Scale location: Confirma que no se cumple el supuesto de homocedasticidad. Hay una tendencia hacia arriba en la linea que representa la media a medida que crecen los fitted values. Si bien esta curva es leve, se agrega a lo ya visto en el grafico 1.
+Residual vs leverage: Existe varios puntos con leverage alto.
+
+
+```{r inferir/predecir 2 }
+
+# Realiza las predicciones para 6 años de experiencia potencial
+prediccion_6_anios <- predict(modelo_experiencia_potencial_cuadrado, newdata = data.frame(experiencia_potencial = 6))
+prediccion_7_anios <- predict(modelo_experiencia_potencial_cuadrado, newdata = data.frame(experiencia_potencial = 7))
+
+# Realiza las predicciones para 35 años de experiencia potencial
+prediccion_35_anios <- predict(modelo_experiencia_potencial_cuadrado, newdata = data.frame(experiencia_potencial = 35))
+prediccion_36_anios <- predict(modelo_experiencia_potencial_cuadrado, newdata = data.frame(experiencia_potencial = 36))
+
+# Muestra los resultados
+cat("Salario horario esperado para 6 años de experiencia laboral: $", round(prediccion_6_anios, 2), "\n")
+cat("Salario horario esperado para 7 años de experiencia laboral: $", round(prediccion_7_anios, 2), "\n")
+cat("Salario horario esperado para 35 años de experiencia laboral: $", round(prediccion_35_anios, 2), "\n")
+cat("Salario horario esperado para 36 años de experiencia laboral: $", round(prediccion_36_anios, 2), "\n")
+
+
+```
+
+### Conclusiones del segundo modelo
+
+
+En resumen, este modelo incluye tanto una relación lineal como una relación cuadrática entre "experiencia_potencial" y "salario_horario." Ambos predictores son estadísticamente significativos, pero el modelo en su conjunto todavía explica una pequeña proporción de la variabilidad en "salario_horario," como se refleja en el bajo R-cuadrado.
+
+
+## Rtas Ejercicio 2
+A modo de resumen de lo expuesto a lo largo del ejercicio:
+
+impacto de un año adicional de experiencia potencial en el salario horario esperado:
+- modelo_experiencia_potencial: incremento de $1.864 
+- modelo_experiencia_potencial_cuadrado: incremento de $12.1603 - 2 * $0.20301 * experiencia_potencial
+
+efecto sobre el salario horario esperado de un año más de experiencia laboral para una persona con 6 años de experiencia laboral
+
+- modelo_experiencia_potencial: se incrementa en $1.864 
+- modelo_experiencia_potencial_cuadrado: incremento de 9.56388
+
+efecto sobre el salario horario esperado de un año más de experiencia laboral para una persona con 35 años de experiencia laboral
+- modelo_experiencia_potencial: incremento de 1.864 
+- modelo_experiencia_potencial_cuadrado: decremento de $2.2107
+
+# Ejercicio Nro 3: Modelo lineal múltiple
+
+E(SalarioHorario) = β0 + β1 AñosEducacion + β2 ExperienciaP otencial + β2 ExperienciaP otencial2 + β3 Sexo + β4 Sexo · AñosEducacion
+
+## Modelo 3.1: Modelo Mincer
+
+### Ajuste del modelo
+
+```{r modelo mincer 2}
+
+ds$sexo <- relevel(ds$sexo, ref = "Mujer")
+modelo_mincer = lm(formula = salario_horario ~ educacion + experiencia_potencial + I(experiencia_potencial^2) + sexo + sexo*educacion, data = ds)
+modelo_mincer
+
+```
+
+
+
+```{r resumen modelo mincer}
+# Observamos que devuelve el modelo
+resumen_modelo_mincer = summary(modelo_mincer)
+resumen_modelo_mincer
+
+# Resumen del modelo
+tidy_resumen_modelo_mincer <- tidy(resumen_modelo_mincer, conf.int = TRUE) %>% arrange(p.value)
+tidy_resumen_modelo_mincer
+
+```
+
+
+
+El Intercepto es -319.8261. Este es el valor del salario horario cuando todas el sexo es 'Mujer' y las demás variables independientes son iguales a cero.
+educacion: 48.2334. Indica cómo cambia el salario horario por cada unidad adicional en la variable educación, manteniendo todas las demás variables constantes. Un aumento de una unidad en educación se asocia con un aumento promedio de aproximadamente 48.23 unidades en el salario horario.
+experiencia_potencial: por cada año adicional en experiencia_potencial, se incrementa en 11.1425 - 2 * 0.1019 * experiencia_potencial 
+sexoVaron: En promedio, el salario_horario se incrementa en 73.2669 cuando el sexo es varon. (aunque esta variable no se considera significativa ya que tiene un p-value mayor a 0.05)
+educacion:sexoVaron: -2.0333. Este término representa la interacción entre las variables educación y sexoVaron. Indica cómo el efecto de la educación en el salario horario varía según el género. En este caso, un aumento en la educación tiene un efecto negativo en el salario horario para los varones, disminuyendo el salario horario en aproximadamente 2.03 unidades.(aunque esta variable no se considera significativa ya que tiene un p-value mayor a 0.05).
+
+El R-squared es 0.1634, esto significa que el modelo explica aproximadamente el 16.34% de la variabilidad en el salario horario. El Adjusted R-squared (R-cuadrado Ajustado): 0.163. muy similar al R-squared.
+
+El F-statistic es de 453.7 y su p-value asociado es de 2.2e-16, lo cual indica que el modelo en su conjunto es significativo
+```{r plot coeficientes 1}
+# Plot de los Coeficientes
+ggplot(tidy_resumen_modelo_mincer, aes(estimate, term, xmin = conf.low, xmax = conf.high, height = 0)) +
+  geom_point(color = "forestgreen",size=2) +
+  geom_vline(xintercept = 0, lty = 4, color = "black") +
+  geom_errorbarh(color = "forestgreen", size=1) +
+  theme_bw() +
+  labs(y = "Coeficientes β", x = "Estimación")
+```
+
+
+### Diagnostico
+
+```{r diagnostico 1}
+plot(modelo_mincer)
+
+```
+Residuals vs Fitted: Se ve una estructura, por lo que interpreto que nos se satisface el supuesto de homocedasticidad.
+Normal QQ plot: El extremo superior derecho se separa mucho de la distribución teórica, por lo que no parece seguir una distribución normal.
+Scale location: Confirma que no se cumple el supuesto de homocedasticidad. Hay una tendencia hacia arriba en la linea que representa la media a medida que crecen los fitted values.
+Residual vs leverage: Se observan varios puntos con leverage alto.
+
+
+### Resumen Ejercicio 3
+
+En resumen, este modelo muestra la relación entre el salario horario y las variables. Los valores de R-cuadrado indican que explica una parte, chica, de la variabilidad en el salario horario. La prueba F indica que el modelo en su conjunto es significativo. 
+ 
+Diagnostico: El modelo no cumple con el supuesto de distribución normal ni de homocedasticidad.
+
+
+# Ejercicio Nro 4: Modelo de Mincer "enriquecido"
+
+E [ln(SalarioHorario)] = β0 + β1AñosEducacion + β2 ExperienciaPotencial + β2ExperienciaP otencial2+ β3Sexo + β4Sexo · AñosEducacion
+
+## Modelo 4.1
+
+### Calculos previos
+
+Necesito calcular el log del salario_horario (tambien tengo que hacerlo para los outliers)
+
+```{r calcular log.salario}
+ds = ds %>% 
+  mutate(log.salario_horario = log(salario_horario))
+head(ds)
+
+ds_outliers = ds_outliers %>% 
+  mutate(log.salario_horario = log(salario_horario))
+
+
+```
+
+Vamos a ver el impacto del log en la distribucion del salario_horario
+
+```{r distribuciones}
+ggplot(data = ds, aes(x = round(salario_horario))) + 
+  geom_histogram(col = "white", aes( fill = ..count..), alpha = 0.75) +
+  labs(title = "Histograma de precios de salario_horario") +
+  labs(x = "salario_horario") +
+  theme_bw()
+
+ggplot(data = ds, aes(x = log.salario_horario)) + 
+  geom_histogram(col = "white", aes( fill = ..count..), alpha = 0.75) +
+  labs(title = "Histograma de log.salario_horario") +
+  labs(x = "log.salario_horario") +
+  theme_bw()
+
+```
+Como puede verse, se normaliza bastante.
+
+
+### Ajuste del modelo
+
+```{r modelo 4}
+modelo_mincer_enriquecido = lm(formula = log.salario_horario ~ educacion + experiencia_potencial + I(experiencia_potencial^2) + sexo + sexo*educacion, data = ds)
+modelo_mincer_enriquecido
+
+```
+
+```{r resumen modelo mincer enriquecido}
+# Observamos que devuelve el modelo
+resumen_modelo_mincer_enriquecido = summary(modelo_mincer_enriquecido)
+resumen_modelo_mincer_enriquecido
+
+# Resumen del modelo
+tidy_resumen_modelo_mincer_enriquecido <- tidy(resumen_modelo_mincer_enriquecido, conf.int = TRUE) %>% arrange(p.value)
+tidy_resumen_modelo_mincer_enriquecido
+
+
+```
+
+```{r plot coeficientes 2}
+# Plot de los Coeficientes
+ggplot(tidy_resumen_modelo_mincer_enriquecido, aes(estimate, term, xmin = conf.low, xmax = conf.high, height = 0)) +
+  geom_point(color = "forestgreen",size=2) +
+  geom_vline(xintercept = 0, lty = 4, color = "black") +
+  geom_errorbarh(color = "forestgreen", size=1) +
+  theme_bw() +
+  labs(y = "Coeficientes β", x = "Estimación")
+```
+
+```{r comparo R-squared de los modelos}
+
+
+# Armamos lista con todos los modelos
+models <- list(modelo_mincer = modelo_mincer, modelo_mincer_enriquecido = modelo_mincer_enriquecido)
+
+# calculamos las métricas para ambos modelos
+df_evaluacion_train = map_df(models, broom::glance, .id = "model") %>%
+  # ordenamos por R2 ajustado
+  arrange(desc(adj.r.squared))
+
+
+
+# para ejecutar el anti-log usamos función exponencial
+eval1 <- broom::augment(modelo_mincer_enriquecido, ds)
+eval1 = eval1 %>%  mutate(fitted_antilog = exp(.fitted))
+# calculamos RMSE y R2 para las variables originales y no log(price) para que sea comparable con los demás modelos
+metricas1 = metrics(data = eval1, truth = salario_horario, estimate = fitted_antilog) %>% mutate(.estimate = round(.estimate, 4))
+metricas1
+
+
+eval2 <- broom::augment(modelo_mincer, ds)
+metricas2 = metrics(data = eval2, truth = salario_horario, estimate = .fitted) %>% mutate(.estimate = round(.estimate, 4))
+metricas2
+```
+
+El Coeficiente de la variable educacion: es 0.08968500. Indica que por cada año adicional de educacion, el salario horario se incrementa un 8.9% (manteniendo todas las demás variables constantes)
+Todos los coeficientes son significativos (inclusive aquellos que no lo eran en el modelo anterior).
+
+El R-squared es 0.183, esto significa que el modelo explica aproximadamente el 18.3% de la variabilidad del logaritmo del salario horario. Haciendo la exponencial del salario_horario predicho podemos comparar ambos R-squared. Y vemos que el de este modelo es un poco mayor: 0.1786 contra 0.1634.
+
+El F-statistic es de 520.6 y su p-value asociado es de 2.2e-16, lo cual indica que el modelo en su conjunto es significativo
+
+
+### Diagnostico
+```{r diagnostico mincer enriquecido}
+plot(modelo_mincer_enriquecido)
+
+```
+Residuals vs Fitted: Puede haber una estructura, pero ciertamente es mucho menos pronunciada que la del modelo anterior. Creo que en este caso se satisface el supuesto de homocedasticidad.
+Normal QQ plot: Tambien mejoro con respecto al anterior. El extremo superior derecho se mantiene mucho mas cerca de la la distribución teórica, aunque en la parte inferior empeoro un poco. Igualmente diria que sigue una distribución normal.
+Scale location: Confirma que se cumple el supuesto de homocedasticidad. .
+Residual vs leverage: Se siguen observando varios puntos con leverage alto. Pero es razonable, ya que el logaritmo no modifica los outliers.
+
+
+# Ejercicio Nro 5: Modelos propios y evaluación
+
+Elegi un modelo que agrega información del nivel educativo, y otro que agrega información de la region. Creo que ambos features deberian mejorar las predicciones, y quisiera ver en la practica cual mejora mas. 
+
+## Modelo 5.1: modelo_mincer_enriquecido_nivel_ed
+
+```{r}
+ds
+```
+
+### Ajuste del Modelo
+
+```{r modelo_mincer_enriquecido_nivel_ed}
+
+#Elijo categoria Basal
+ds$nivel_ed <- relevel(ds$nivel_ed, ref = "Superior Universitaria Completa")
+#Entreno el modelo
+modelo_mincer_enriquecido_nivel_ed = lm(formula = log.salario_horario ~ educacion + experiencia_potencial + I(experiencia_potencial^2) + sexo + nivel_ed, data = ds)
+modelo_mincer_enriquecido_nivel_ed
+
+```
+
+```{r resumen modelo_mincer_enriquecido_nivel_ed}
+# Observamos que devuelve el modelo
+resumen_modelo_mincer_enriquecido_nivel_ed = summary(modelo_mincer_enriquecido_nivel_ed)
+resumen_modelo_mincer_enriquecido_nivel_ed
+
+# Resumen del modelo
+tidy_resumen_modelo_mincer_enriquecido_nivel_ed <- tidy(resumen_modelo_mincer_enriquecido_nivel_ed, conf.int = TRUE)
+tidy_resumen_modelo_mincer_enriquecido_nivel_ed
+
+
+```
+Con la exepcion de nivel_edPrimaria Incompleta, todas las categorias son significativas. El F-statistic es de 311.5 y su p-value asociado es de 2.2e-16, lo cual indica que el modelo en su conjunto es significativo.
+El R-squared da un poco por encima de los modelos anteriores, aunque para poder compararlo con ellos, habria que convertir el fitted value a precio nuevamente (lo haramos mas adelante).
+
+
+### Diagnostico del modelo
+
+```{r diagnostico 2}
+plot(modelo_mincer_enriquecido_nivel_ed)
+
+```
+Residuals vs Fitted: No parece haber estructura. Como en casos anteriores, en los extremos hay menos observaciones y esto puede dar una sensacion de estructura, pero creo que en este caso se satisface el supuesto de homocedasticidad.
+Normal QQ plot: El extremo superior derecho se mantiene mucho mas cerca de la la distribución teórica, aunque en la parte inferior se separa. No cumple el supuesto de normalidad.
+Scale location: Confirma que se cumple el supuesto de homocedasticidad. .
+Residual vs leverage: Se siguen observando varios puntos con leverage alto. Pero es razonable, ya que el logaritmo no modifica los outliers.
+
+## Modelo 2: modelo_mincer_enriquecido_region
+
+### Modelo 5.2
+
+### Ajuste del modelo
+
+```{r modelo_mincer_enriquecido_region}
+
+#Elijo categoria Basal
+ds$region <- relevel(ds$region, ref = "Patagonia")
+#Entreno el modelo
+
+modelo_mincer_enriquecido_region = lm(formula = log.salario_horario ~ educacion + experiencia_potencial + I(experiencia_potencial^2) + sexo + region, data = ds)
+modelo_mincer_enriquecido_region
+
+```
+
+```{r resumen modelo_mincer_enriquecido_region}
+# Observamos que devuelve el modelo
+
+
+resumen_modelo_mincer_enriquecido_region = summary(modelo_mincer_enriquecido_region)
+resumen_modelo_mincer_enriquecido_region
+
+# Resumen del modelo
+tidy_resumen_modelo_mincer_enriquecido_region <- tidy(resumen_modelo_mincer_enriquecido_region, conf.int = TRUE)
+tidy_resumen_modelo_mincer_enriquecido_region
+
+
+```
+
+Todas las categorias son significativas. El F-statistic es de 417.2 y su p-value asociado es de 2.2e-16, lo cual indica que el modelo en su conjunto es significativo.
+El R-squared mejora bastante al de los modelos anteriores. En este caso, podríamos compararlo directamente únicamente con aquellos en que predecimos el precio del logaritmo. Y resulta mejor.
+
+### Diagnostico del modelo
+
+```{r diagnostico mincer enriquecido region}
+plot(modelo_mincer_enriquecido_region)
+
+```
+Residuals vs Fitted: No parece haber estructura. Como en casos anteriores, en los extremos hay menos observaciones y esto puede dar una sensación de estructura, pero creo que en este caso se satisface el supuesto de homocedasticidad.
+Normal QQ plot: Muy parecido al modelo anterior. El extremo superior derecho se mantiene mucho mas cerca de la la distribución teórica, aunque en la parte inferior se separa bastante. No cumple el principio de normalidad
+Scale location: Confirma que se cumple el supuesto de homocedasticidad.
+Residual vs leverage: Se siguen observando varios puntos con leverage alto. 
+
+
+## Comparacion de los modelos
+
+### Para train
+Vamos a calcular el MAE, RMSE y R2 para los 6 modelos
+
+```{r comparo entrenamiento 1}
+
+# en models guardo todos los modelos
+models <- list(modelo_experiencia_potencial = modelo_experiencia_potencial, modelo_experiencia_potencial_cuadrado = modelo_experiencia_potencial_cuadrado,
+               modelo_mincer = modelo_mincer, modelo_mincer_enriquecido = modelo_mincer_enriquecido,
+               modelo_mincer_enriquecido_nivel_ed = modelo_mincer_enriquecido_nivel_ed, modelo_mincer_enriquecido_region = modelo_mincer_enriquecido_region)
+
+#Genero metricas del modelo 1
+eval1 <- broom::augment(modelo_experiencia_potencial, ds)
+metricas1 = metrics(data = eval1, truth = salario_horario, estimate = .fitted) %>% mutate(.estimate = round(.estimate, 4)) %>% mutate(modelo = 'modelo_experiencia_potencial')
+
+
+#Genero metricas del modelo 2
+eval2 <- broom::augment(modelo_experiencia_potencial_cuadrado, ds)
+metricas2 = metrics(data = eval2, truth = salario_horario, estimate = .fitted) %>% mutate(.estimate = round(.estimate, 4)) %>% mutate(modelo = 'modelo_experiencia_potencial_cuadrado')
+
+
+#Genero metricas del modelo 3
+eval3 <- broom::augment(modelo_mincer, ds)
+metricas3 = metrics(data = eval3, truth = salario_horario, estimate = .fitted) %>% mutate(.estimate = round(.estimate, 4)) %>% mutate(modelo = 'modelo_mincer')
+
+
+#Genero metricas del modelo 4
+#Tengo que cambiar los calculos porque usamos el log del sueldo_horario
+eval4 <- broom::augment(modelo_mincer_enriquecido, ds)
+eval4 = eval4 %>%  mutate(fitted_antilog = exp(.fitted))
+# calculamos RMSE y R2 para las variables originales y no log(sueldo_horario) para que sea comparable con los demás modelos
+metricas4 = metrics(data = eval4, truth = salario_horario, estimate = fitted_antilog) %>% mutate(.estimate = round(.estimate, 4)) %>% mutate(modelo = 'modelo_mincer_enriquecido')
+
+#Genero metricas del modelo 4
+#Tengo que cambiar los calculos porque usamos el log del sueldo_horario
+eval5 <- broom::augment(modelo_mincer_enriquecido_nivel_ed, ds)
+eval5 = eval5 %>%  mutate(fitted_antilog = exp(.fitted))
+
+metricas5 = metrics(data = eval5, truth = salario_horario, estimate = fitted_antilog) %>% mutate(.estimate = round(.estimate, 4)) %>% mutate(modelo = 'modelo_mincer_enriquecido_nivel_ed')
+
+#Genero metricas del modelo 4
+#Tengo que cambiar los calculos porque usamos el log del sueldo_horario
+eval6 <- broom::augment(modelo_mincer_enriquecido_region, ds)
+eval6 = eval6 %>%  mutate(fitted_antilog = exp(.fitted))
+
+metricas6 = metrics(data = eval6, truth = salario_horario, estimate = fitted_antilog) %>% mutate(.estimate = round(.estimate, 4)) %>% mutate(modelo = 'modelo_mincer_enriquecido_region')
+
+#Mergeo todo
+eval_training <- bind_rows(metricas1, metricas2, metricas3, metricas4, metricas5, metricas6)
+eval_training
+
+#Miramos RMSE
+eval_training  %>%
+  filter(.metric == "rmse") %>%
+  arrange(.estimate)
+
+#Miramos MAE
+eval_training  %>%
+  filter(.metric == "mae") %>%
+  arrange(.estimate)
+
+#Miramos R-Squared
+eval_training  %>%
+  filter(.metric == "rsq") %>%
+  arrange(desc(.estimate))
+
+```
+En training, el mejor es el modelo_mincer_enriquecido_region (aunque también es mas complejo que todos salvo modelo_mincer_enriquecido_nivel_ed). Por otro lado, acá estoy mirando el R-squared y no el ajustado. Igualmente se ve en los distintos summaries a lo largo del notebook que el R-squared ajustado también mejora sobre el resto.
+
+Ahora vamos a ver para test...
+
+### Para Test
+
+Vamos a calcular el MAE, RMSE y R2 para los 6 modelos
+
+```{r comparo entrenamiento 2}
+
+#Genero metricas del modelo 1
+eval1 <- broom::augment(modelo_experiencia_potencial, newdata = ds_test)
+metricas1 = metrics(data = eval1, truth = salario_horario, estimate = .fitted) %>% mutate(.estimate = round(.estimate, 4)) %>% mutate(modelo = 'modelo_experiencia_potencial')
+
+
+#Genero metricas del modelo 2
+eval2 <- broom::augment(modelo_experiencia_potencial_cuadrado, newdata = ds_test)
+metricas2 = metrics(data = eval2, truth = salario_horario, estimate = .fitted) %>% mutate(.estimate = round(.estimate, 4)) %>% mutate(modelo = 'modelo_experiencia_potencial_cuadrado')
+
+
+#Genero metricas del modelo 3
+eval3 <- broom::augment(modelo_mincer, newdata = ds_test)
+metricas3 = metrics(data = eval3, truth = salario_horario, estimate = .fitted) %>% mutate(.estimate = round(.estimate, 4)) %>% mutate(modelo = 'modelo_mincer')
+
+
+#Genero metricas del modelo 4
+#Tengo que cambiar los calculos porque usamos el log del sueldo_horario
+eval4 <- broom::augment(modelo_mincer_enriquecido, newdata = ds_test)
+eval4 = eval4 %>%  mutate(fitted_antilog = exp(.fitted))
+# calculamos RMSE y R2 para las variables originales y no log(sueldo_horario) para que sea comparable con los demás modelos
+metricas4 = metrics(data = eval4, truth = salario_horario, estimate = fitted_antilog) %>% mutate(.estimate = round(.estimate, 4)) %>% mutate(modelo = 'modelo_mincer_enriquecido')
+
+#Genero metricas del modelo 5
+#Tengo que cambiar los calculos porque usamos el log del sueldo_horario
+eval5 <- broom::augment(modelo_mincer_enriquecido_nivel_ed, newdata = ds_test)
+eval5 = eval5 %>%  mutate(fitted_antilog = exp(.fitted))
+
+metricas5 = metrics(data = eval5, truth = salario_horario, estimate = fitted_antilog) %>% mutate(.estimate = round(.estimate, 4)) %>% mutate(modelo = 'modelo_mincer_enriquecido_nivel_ed')
+
+#Genero metricas del modelo 6
+#Tengo que cambiar los calculos porque usamos el log del sueldo_horario
+eval6 <- broom::augment(modelo_mincer_enriquecido_region, newdata = ds_test)
+eval6 = eval6 %>%  mutate(fitted_antilog = exp(.fitted))
+
+metricas6 = metrics(data = eval6, truth = salario_horario, estimate = fitted_antilog) %>% mutate(.estimate = round(.estimate, 4)) %>% mutate(modelo = 'modelo_mincer_enriquecido_region')
+
+#Mergeo todo
+eval_test <- bind_rows(metricas1, metricas2, metricas3, metricas4, metricas5, metricas6)
+eval_test
+
+#Miramos RMSE
+eval_test  %>%
+  filter(.metric == "rmse") %>%
+  arrange(.estimate)
+
+#Miramos MAE
+eval_test  %>%
+  filter(.metric == "mae") %>%
+  arrange(.estimate)
+
+#Miramos R-Squared
+eval_test  %>%
+  filter(.metric == "rsq") %>%
+  arrange(desc(.estimate))
+
+```
+En los datos de test, el mejor es el modelo_mincer_enriquecido_region (aunque tambien es mas complejo). Por otro lado, aca estoy mirando el R-squared y no el ajustado. Igualmente se ve en los distintos summaries a lo largo del notebook que el R-squared ajustado tambien mejora sobre el resto.
+
+
+# Ejercicio Nro 6: Modelo lineal robusto
+
+## Analizar diferencias
+
+Vemos los outliers del nuevo dataset
+
+```{r boxplots salario_horario}
+
+# Agregar una columna con el nombre del dataset original
+ds$Dataset <- "ds"
+ds_outliers$Dataset <- "ds_outliers"
+
+
+# Unir los dataframes por filas
+merged_dataset <- rbind(ds, ds_outliers)
+
+#mirar salario_horario por por dataset
+ggplot(merged_dataset, aes(x = Dataset, y = salario_horario, group = Dataset, fill = Dataset))+
+  geom_boxplot() +
+  scale_y_continuous(limits = c(min(merged_dataset$salario_horario), max(merged_dataset$salario_horario))) # definimos escala del eje y
+
+```
+Efectivamente tiene outliers mucho mas grandes. Y parecen ser bastantes.
+
+## Modelo 6.21 modelo lineal multiple
+
+Supongo que cuando indican modelo lineal multiple estan hablando del modelo pedido en el ejercicio nro 3.
+
+### Ajuste del modelo
+
+```{r modelo mincer 1}
+
+ds_outliers$sexo <- relevel(ds_outliers$sexo, ref = "Mujer")
+modelo_mincer_2 = lm(formula = salario_horario ~ educacion + experiencia_potencial + I(experiencia_potencial^2) + sexo + sexo*educacion, data = ds_outliers)
+modelo_mincer_2
+
+```
+
+
+```{r resumen modelo mincer outliers}
+# Observamos que devuelve el modelo
+resumen_modelo_mincer_2 = summary(modelo_mincer_2)
+resumen_modelo_mincer_2
+
+# Resumen del modelo
+tidy_resumen_modelo_mincer_2 <- tidy(resumen_modelo_mincer_2, conf.int = TRUE) %>% arrange(p.value)
+tidy_resumen_modelo_mincer_2
+
+```
+Los coeficientes son similares al modelo entrenado sin ourliers, pero el RSquared se duplico, y el RSE aumento bastante. 
+
+
+### Diagnostico
+
+```{r diagnostico 3}
+plot(modelo_mincer_2)
+
+```
+Residuals vs Fitted: Se ven residuos mucho mas grandes que antes, y parece haber estructura (se agrandan los errores a medida que nos aumentamos el fitted value)
+Normal QQ plot: El extremo superior derecho se separa mucho de la distribución teórica, por lo que no parece seguir una distribución normal.
+Scale location: Confirma que no se cumple el supuesto de homocedasticidad. Hay una tendencia hacia arriba en la linea que representa la media a medida que crecen los fitted values.
+Residual vs leverage: Se observan varios puntos con leverage alto.
+
+## Modelo 6.2: Modelo Mincer Enriquecido
+
+### Ajuste del modelo
+
+```{r modelo}
+modelo_mincer_enriquecido_2 = lm(formula = log.salario_horario ~ educacion + experiencia_potencial + I(experiencia_potencial^2) + sexo + sexo*educacion, data = ds_outliers)
+modelo_mincer_enriquecido_2
+
+```
+
+```{r resumen modelo mincer enriquecido 2}
+
+# Observamos que devuelve el modelo
+resumen_modelo_mincer_enriquecido_2 = summary(modelo_mincer_enriquecido_2)
+resumen_modelo_mincer_enriquecido_2
+
+# Resumen del modelo
+tidy_resumen_modelo_mincer_enriquecido_2 <- tidy(resumen_modelo_mincer_enriquecido_2, conf.int = TRUE) %>% arrange(p.value)
+tidy_resumen_modelo_mincer_enriquecido_2
+
+```
+
+Los coeficientes, el RSE y el S-squares son similares al modelo entrenado sobre datos sin outliers. La variable educacion:sexoVaron perdio significatividad.
+
+
+```{r plot coeficientes 3}
+
+# Plot de los Coeficientes
+ggplot(tidy_resumen_modelo_mincer_enriquecido_2, aes(estimate, term, xmin = conf.low, xmax = conf.high, height = 0)) +
+  geom_point(color = "forestgreen",size=2) +
+  geom_vline(xintercept = 0, lty = 4, color = "black") +
+  geom_errorbarh(color = "forestgreen", size=1) +
+  theme_bw() +
+  labs(y = "Coeficientes β", x = "Estimación")
+```
+
+
+### Diagnostico
+```{r diagnostico mincer enriquecido con outliers}
+plot(modelo_mincer_enriquecido_2)
+
+```
+Residuals vs Fitted: No parece haber una estructura subyacente, Creo que en este caso se satisface el supuesto de homocedasticidad.
+Normal QQ plot: El extremo superior derecho se mantiene mucho mas cerca de la la distribución teórica, aunque en la parte inferior empeoro un poco. Igualmente diria que sigue una distribución normal.
+Scale location: Confirma que se cumple el supuesto de homocedasticidad. .
+Residual vs leverage: Se siguen observando varios puntos con leverage alto.
+
+
+## Modelo 6.3: Modelo Robusto
+
+```{r Ajustar el modelo}
+
+# Ajusta el modelo con lmrob
+modelo_mincer_robusto <- lmrob(salario_horario ~ educacion + experiencia_potencial + I(experiencia_potencial^2) + sexo + sexo*educacion, data = ds_outliers)
+
+```
+
+```{r resumen modelo robusto}
+# Observamos que devuelve el modelo
+resumen_modelo_mincer_robusto = summary(modelo_mincer_robusto)
+resumen_modelo_mincer_robusto
+
+resumen_modelo_mincer_robusto <- summary(modelo_mincer_robusto)
+tidy_resumen_modelo_mincer_robusto <- data.frame(resumen_modelo_mincer_robusto$coefficients)
+tidy_resumen_modelo_mincer_robusto$p.value =  2*pt(abs(tidy_resumen_modelo_mincer_robusto$t.value), resumen_modelo_mincer_robusto$df[2], lower.tail=FALSE)      #$
+tidy_resumen_modelo_mincer_robusto$term = names(coef(modelo_mincer_robusto))
+tidy_resumen_modelo_mincer_robusto <- tidy_resumen_modelo_mincer_robusto %>% relocate(term, .before = 1)
+
+tidy_resumen_modelo_mincer_robusto
+
+```
+
+## Diagnostico
+
+```{r diagnostico 4}
+plot(modelo_mincer_robusto)
+
+```
+## Comparacion de coeficientes
+
+
+```{r}
+tidy_resumen_modelo_mincer_2$modelo = "mincer"
+tidy_resumen_modelo_mincer_robusto$modelo = "robusto" 
+
+tm = tidy_resumen_modelo_mincer_2[,c("modelo", "term","estimate", "std.error", "statistic", "p.value")]
+tr = tidy_resumen_modelo_mincer_robusto[,c("modelo","term","Estimate", "Std..Error", "t.value", "p.value")]
+colnames(tr) <- colnames(tm)
+mergeados <- rbind(tr, tm)
+
+
+subset(mergeados, term == "(Intercept)")
+
+subset(mergeados, term == "I(experiencia_potencial^2)")
+
+subset(mergeados, term == "educacion:sexoVaron")
+subset(mergeados, term == "experiencia_potencial")
+
+```
+La diferencia mas nototia en los coeficientes es en el intercepto. (el robusto es cerca de la mitad). Por otro lado, el campo educacion:sexoVaron, que no es significativo en mincer, si lo es en el modelo robusto.
+
+
+## Comparacion de Performance
+### Para train
+Vamos a calcular el MAE, RMSE y R2 para los 6 modelos
+
+```{r comparo entrenamiento 3}
+
+# en models guardo todos los modelos
+models <- list(modelo_mincer_2 = modelo_mincer_2, modelo_mincer_enriquecido_2 = modelo_mincer_enriquecido_2,
+               modelo_mincer_robusto = modelo_mincer_robusto)
+
+
+#Genero metricas del modelo 3
+eval3 <- broom::augment(modelo_mincer_2, ds_outliers)
+metricas3 = metrics(data = eval3, truth = salario_horario, estimate = .fitted) %>% mutate(.estimate = round(.estimate, 4)) %>% mutate(modelo = 'modelo_mincer_2')
+
+
+#Genero metricas del modelo 4
+#Tengo que cambiar los calculos porque usamos el log del sueldo_horario
+eval4 <- broom::augment(modelo_mincer_enriquecido_2, ds_outliers)
+eval4 = eval4 %>%  mutate(fitted_antilog = exp(.fitted))
+# calculamos RMSE y R2 para las variables originales y no log(sueldo_horario) para que sea comparable con los demás modelos
+metricas4 = metrics(data = eval4, truth = salario_horario, estimate = fitted_antilog) %>% mutate(.estimate = round(.estimate, 4)) %>% mutate(modelo = 'modelo_mincer_enriquecido_2')
+
+#Genero metricas del modelo 4
+#Tengo que cambiar los calculos porque usamos el log del sueldo_horario
+eval5 <- broom::augment(modelo_mincer_robusto, ds_outliers)
+metricas5 = metrics(data = eval5, truth = salario_horario, estimate = .fitted) %>% mutate(.estimate = round(.estimate, 4)) %>% mutate(modelo = 'modelo_mincer_robusto')
+
+
+#Mergeo todo
+eval_training <- bind_rows(metricas3, metricas4, metricas5)
+eval_training
+
+#Miramos RMSE
+eval_training  %>%
+  filter(.metric == "rmse") %>%
+  arrange(.estimate)
+
+#Miramos MAE
+eval_training  %>%
+  filter(.metric == "mae") %>%
+  arrange(.estimate)
+
+```
+En training, usando el MAE, el mejor es el modelo_mincer_enriquecido. Y usando el RMSE, el mejor modelo es modelo_mincer. 
+
+### Para Test
+
+Vamos a calcular el MAE, RMSE y R2 para los 6 modelos
+
+```{r comparo entrenamiento 4}
+
+# en models guardo todos los modelos
+models <- list(modelo_mincer_2 = modelo_mincer_2, modelo_mincer_enriquecido_2 = modelo_mincer_enriquecido_2,
+               modelo_mincer_robusto = modelo_mincer_robusto)
+
+
+#Genero metricas del modelo 3
+eval3 <- broom::augment(modelo_mincer_2, newdata = ds_test)
+metricas3 = metrics(data = eval3, truth = salario_horario, estimate = .fitted) %>% mutate(.estimate = round(.estimate, 4)) %>% mutate(modelo = 'modelo_mincer')
+
+
+#Genero metricas del modelo 4
+#Tengo que cambiar los calculos porque usamos el log del sueldo_horario
+eval4 <- broom::augment(modelo_mincer_enriquecido_2, newdata = ds_test)
+eval4 = eval4 %>%  mutate(fitted_antilog = exp(.fitted))
+# calculamos RMSE y R2 para las variables originales y no log(sueldo_horario) para que sea comparable con los demás modelos
+metricas4 = metrics(data = eval4, truth = salario_horario, estimate = fitted_antilog) %>% mutate(.estimate = round(.estimate, 4)) %>% mutate(modelo = 'modelo_mincer_enriquecido')
+
+#Genero metricas del modelo 5
+#Tengo que cambiar los calculos porque usamos el log del sueldo_horario
+eval5 <- broom::augment(modelo_mincer_robusto, newdata = ds_test)
+metricas5 = metrics(data = eval5, truth = salario_horario, estimate = .fitted) %>% mutate(.estimate = round(.estimate, 4)) %>% mutate(modelo = 'modelo_mincer_robusto')
+
+
+#Mergeo todo
+eval_test <- bind_rows(metricas3, metricas4, metricas5)
+eval_test
+
+#Miramos RMSE
+eval_test  %>%
+  filter(.metric == "rmse") %>%
+  arrange(.estimate)
+
+#Miramos MAE
+eval_test  %>%
+  filter(.metric == "mae") %>%
+  arrange(.estimate)
+
+
+```
+En test, usando el MAE, el mejor es el modelo_mincer Y usando el RMSE, el mejor modelo es modelo_mincer_enriquecido 
+
+Llama la atención que el robusto no sea el mejor. Pero esto puede deberse a que el robusto utiliza los mismos parametros que el mincer (a quien si le gana). Seria razonable suponerposible  que si replicasemos el mincer enriquecido, pero de forma robusta supere al enriquecido no robusto. 
