@@ -17,7 +17,6 @@ options(scipen = 999)
 archivo = paste0(getwd(), "/", "Ordinal.csv")
 cat (archivo)
 
-
 Ordinaldf <- read.csv(archivo) #read in data
 View(Ordinaldf)#view data
 attach(Ordinaldf) #attach file
