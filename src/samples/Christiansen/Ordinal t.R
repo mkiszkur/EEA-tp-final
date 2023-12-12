@@ -1,3 +1,4 @@
+#Tomado de: https://www.youtube.com/watch?v=rrRrI9gElYA
 #########################Ordinal regression
 
 #install.packages("ordinal")
