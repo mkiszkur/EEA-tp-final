@@ -12,7 +12,6 @@ output:
 rm(list = ls()) # remove all objects
 gc() # garbage collection
 
-knitr::opts_knit$set(root.dir = "/Users/miguelkiszkurno/Documents/EEA-tp-final")
 
 ```
 
@@ -41,8 +40,6 @@ library(brant)# test of proportional odds
 ```
 
 ```{r working directory}
-# Establezco el Working Directory
-#setwd("/Users/miguelkiszkurno/Documents/EEA-tp-final") 
 
 #Semilla que voy a usar durante la notebook
 semilla = 730 
@@ -56,22 +53,28 @@ semilla = 730
 #Dataset de train
 cat (getwd())
 
-ds <- read.table(paste0("/Users/miguelkiszkurno/Documents/EEA-tp-final/datasets/ENFR-2018-Base usuario.txt"),
+ds_all <- read.table(paste0("/Users/shared/ENFR-2018-Base usuario.txt"),
                         sep="|", dec=".", header = TRUE, fill = TRUE)
 
 #Vista general del dataset
-glimpse(ds)
+glimpse(ds_all)
 
 ```
 
 ```{r seleccionar columnas}
-names(ds)[names(ds) == "bhch03"] <- "sexo"
-names(ds)[names(ds) == "bhch04"] <- "edad"
-names(ds)[names(ds) == "consumo_tabaco_100"] <- "condicion_fumador"
 
-names(ds)[names(ds) == "bisg01"] <- "salud"
+#Columnas que vamos a usar en el modelo
+names(ds_all)[names(ds_all) == "bhch03"] <- "sexo"
+names(ds_all)[names(ds_all) == "bhch04"] <- "edad"
+names(ds_all)[names(ds_all) == "consumo_tabaco_100"] <- "condicion_fumador"
 
-ds <- ds[, c("edad", "condicion_fumador", "sexo", "salud")]
+#Variable a predecir
+names(ds_all)[names(ds_all) == "bisg01"] <- "salud"
+
+#nos quedamos solo con las columnas relevantes
+ds <- ds_all[, c("edad", "condicion_fumador", "sexo", "salud")]
+
+#vemos ds
 ds
 
 ```
@@ -95,11 +98,13 @@ tabla_exploratorios
 
 ```{r convertir columnas}
 
+#variable a predecir
 ds$salud<- 5 - ds$salud 
 ds$salud<- factor(ds$salud,
                           levels = c(4,3,2,1,0),
                           labels = c("excelente", "muy buena", "buena", "regular", "mala"))  #label ordinal var
 
+#Variables predictoras
 ds$sexo<- factor(ds$sexo,
                          levels = c(1,2),
                          labels = c("Varón", "Mujer"))  #label sex
@@ -117,9 +122,11 @@ ds
 
 #Miro la relación entre las variables 
 
+#discriminamos por sexo
 ggpairs(ds,  mapping = aes(color = sexo))+
   theme(axis.text.x = element_text(angle = 30, hjust = 1))
 
+#discriminamos por condicion fumador
 ggpairs(ds,  mapping = aes(color = condicion_fumador))+
   theme(axis.text.x = element_text(angle = 30, hjust = 1))
 ```
@@ -186,7 +193,6 @@ modelo_logit <- clm(salud~edad + sexo + condicion_fumador,
               data = ds,
               link = "logit")
 
-
 summary(modelo_logit)
 
 
@@ -198,10 +204,10 @@ nominal_test(modelo_logit)
 ```
 
 
-```{r nuevo dato a predecir}
+```{r nuevo dato (ex fumador) a predecir}
 
 # Crear un nuevo data frame con los datos para la predicción
-dato <- data.frame(
+dato_ex_fumador <- data.frame(
   edad = 45,
   sexo = "Varón",
   condicion_fumador = "Ex fumador"
@@ -224,12 +230,12 @@ t_b <- coef(modelo_logit)["buena|regular"]
 t_r <- coef(modelo_logit)["regular|mala"]
 
 # Dummy coding de variables categóricas
-sexo_mujer <- dato$sexo == 'Mujer'
-cond_fumador_ex <- dato$condicion_fumador == 'Ex fumador'
-cond_fumador_no <- dato$condicion_fumador == 'No fumador'
+sexo_mujer <- dato_ex_fumador$sexo == 'Mujer'
+cond_fumador_ex <- dato_ex_fumador$condicion_fumador == 'Ex fumador'
+cond_fumador_no <- dato_ex_fumador$condicion_fumador == 'No fumador'
 
 # Linear predictor
-eta <- c_edad * dato$edad + c_sexo_mujer * sexo_mujer + 
+eta <- c_edad * dato_ex_fumador$edad + c_sexo_mujer * sexo_mujer + 
        c_ex_fumador *cond_fumador_ex + c_no_fumador * cond_fumador_no
 
 # Probabilidades 
@@ -254,16 +260,38 @@ cat("P(excelente) =", p_excelente, "\n")
 ```{r predecir un valor usando predict}
 
 # Realizar la predicción
-prediccion <- predict(modelo_logit, dato, type = "p")
+prediccion <- predict(modelo_logit, dato_ex_fumador, type = "p")
 
 # Mostrar las probabilidades
 print(prediccion)
 
 # Realizar la predicción
-prediccion <- predict(modelo_logit, dato, type = "class")
+prediccion <- predict(modelo_logit, dato_ex_fumador, type = "class")
 print(prediccion)
 
 ```
+
+```{r nuevo dato ( fumador) a predecir}
+
+# Crear un nuevo data frame con los datos para la predicción
+dato_fumador <- data.frame(
+  edad = 45,
+  sexo = "Varón",
+  condicion_fumador = "Fumador actual"
+)
+
+# Realizar la predicción
+prediccion <- predict(modelo_logit, dato_fumador, type = "p")
+
+# Mostrar las probabilidades
+print(prediccion)
+
+# Realizar la predicción
+prediccion <- predict(modelo_logit, dato_fumador, type = "class")
+print(prediccion)
+
+```
+
 ```{r matriz confusion logit}
 pred1 <- predict(modelo_logit, ds[, c('sexo', 'condicion_fumador', 'edad') ], type = "class")
 tabla_conf <- table(pred1$fit, ds$salud)
@@ -311,7 +339,7 @@ nominal_test(modelo_probit)
 ```{r nuevo dato a predecir}
 
 # Crear un nuevo data frame con los datos para la predicción
-dato <- data.frame(
+dato_ex_fumador <- data.frame(
   edad = 45,
   sexo = "Varón",
   condicion_fumador = "Ex fumador"
@@ -334,13 +362,13 @@ t_b <- coef(modelo_probit)["buena|regular"]
 t_r <- coef(modelo_probit)["regular|mala"]
 
 # Dummy coding de variables categóricas
-sexo_mujer <- dato$sexo == 'Mujer'
-cond_fumador_ex <- dato$condicion_fumador == 'Ex fumador'
-cond_fumador_no <- dato$condicion_fumador == 'No fumador'
+sexo_mujer <- dato_ex_fumador$sexo == 'Mujer'
+cond_fumador_ex <- dato_ex_fumador$condicion_fumador == 'Ex fumador'
+cond_fumador_no <- dato_ex_fumador$condicion_fumador == 'No fumador'
 
 
 # Linear predictor
-eta <- c_edad*dato$edad +  c_sexo_mujer*sexo_mujer +  
+eta <- c_edad*dato_ex_fumador$edad +  c_sexo_mujer*sexo_mujer +  
        c_ex_fumador*cond_fumador_ex + c_no_fumador*cond_fumador_no
        
 # Probabilidad de mala
@@ -372,13 +400,13 @@ cat("P(excelente) =", p_excelente, "\n")
 ```{r predecir un valor usando predict}
 
 # Realizar la predicción
-prediccion <- predict(modelo_probit, dato, type = "p")
+prediccion <- predict(modelo_probit, dato_ex_fumador, type = "p")
 
 # Mostrar las probabilidades
 print(prediccion)
 
 # Realizar la predicción
-prediccion <- predict(modelo_probit, dato, type = "class")
+prediccion <- predict(modelo_probit, dato_ex_fumador, type = "class")
 print(prediccion)
 
 ```
@@ -389,7 +417,7 @@ tabla_conf
 ```
 # Modelo con MASS
 ## Logit
-```{r}
+```{r modelo logit con MASS}
 modelt_logit <- polr(salud~edad + sexo + condicion_fumador,
                data = ds,
                Hess=TRUE)
@@ -408,7 +436,7 @@ coeftest(modelt_logit)
 
 ## Probit
 
-```{r}
+```{r modelo probit con MASS}
 modelt_probit <- polr(salud~edad + sexo + condicion_fumador,
                data = ds,
                method = "probit",
@@ -422,4 +450,112 @@ summary(modelt_probit)
 
 coeftest(modelt_probit)
 
+```
+# Agregamos campos
+
+```{r nombres nuevos features}
+names(ds_all)[names(ds_all) == "bhcv07"] <- "tiene_agua"
+names(ds_all)[names(ds_all) == "bhcv08"] <- "tipo_agua"
+names(ds_all)[names(ds_all) == "bhcv09"] <- "tiene_bano"
+names(ds_all)[names(ds_all) == "bhih01"] <- "ingreso_hogar"
+names(ds_all)[names(ds_all) == "biaf07_m"] <- "minutos_sentado"
+names(ds_all)[names(ds_all) == "bipc03"] <- "controla_peso"
+names(ds_all)[names(ds_all) == "bipc04"] <- "peso_autoreportado"
+
+names(ds_all)[names(ds_all) == "nivel_instruccion"] <- "nivel_instruccion"
+names(ds_all)[names(ds_all) == "cobertura_salud"] <- "cobertura_salud"
+names(ds_all)[names(ds_all) == "condicion_actividad"] <- "condicion_actividad"
+names(ds_all)[names(ds_all) == "nivel_actividad_fisica"] <- "nivel_actividad_fisica"
+
+
+ds <- ds_all[, c("edad", "condicion_fumador", "sexo", "tiene_agua","tipo_agua","tiene_bano", "ingreso_hogar", "minutos_sentado", "controla_peso", "peso_autoreportado", 'nivel_instruccion', 'cobertura_salud', 'condicion_actividad', 'nivel_actividad_fisica', "salud")]
+ds
+
+```
+
+```{r convertir columnas}
+
+
+ds$salud<- 5 - ds$salud 
+ds$salud<- factor(ds$salud,
+                          levels = c(4,3,2,1,0),
+                          labels = c("excelente", "muy buena", "buena", "regular", "mala"))  #label ordinal var
+
+ds$sexo<- factor(ds$sexo,
+                         levels = c(1,2),
+                         labels = c("Varón", "Mujer"))  #label sex
+
+ds$condicion_fumador<- factor(ds$condicion_fumador,
+                         levels = c(1,2,3),
+                         labels = c("Fumador actual", "Ex fumador", "No fumador"))  #label sex
+
+ds$tiene_agua<- factor(ds$tiene_agua,
+                         levels = c(1,2,3)) 
+
+ds$tipo_agua<- factor(ds$tipo_agua,
+                         levels = c(1,2,3,4)) 
+
+ds$tiene_bano <- ds$tiene_bano == "1"
+
+
+#"ingreso_hogar" no tengo que hacer nada
+#"minutos_sentado" no tengo que hacer nada
+
+ds$controla_peso <- ds$controla_peso == "1"
+
+#"peso_autoreportado" no tengo que hacer nada
+ds$nivel_instruccion<- factor(ds$nivel_instruccion,
+                         levels = c(1,2,3,4,5,6,7,8)) 
+ds$cobertura_salud<- factor(ds$cobertura_salud,
+                         levels = c(1,2)) 
+
+ds$condicion_actividad<- factor(ds$condicion_actividad,
+                         levels = c(1,2,3))  #label sex
+
+ds$nivel_actividad_fisica<- factor(ds$nivel_actividad_fisica,
+                         levels = c(1,2,3))  #label sex
+
+ds$minutos_sentado <- as.integer(ds$minutos_sentado)
+
+
+ds
+```
+
+```{r}
+#ds$minutos_sentado
+glimpse(ds)
+print (any(is.na(ds$minutos_sentado)))
+#ds <- na.omit(ds)
+
+```
+
+
+```{r modelo logit 2}
+
+#"edad", "condicion_fumador", "sexo", "tiene_agua","tipo_agua","tiene_bano", "ingreso_hogar", "minutos_sentado", "controla_peso", "peso_autoreportado", 'nivel_instruccion', #'cobertura_salud', 'condicion_actividad', 'nivel_actividad_fisica', "salud")
+
+
+#ingreso_hogar
+#minutos_sentado
+modelo_logit_2 <- clm(salud~edad + sexo + condicion_fumador +tiene_agua +
+                        tiene_bano + controla_peso + peso_autoreportado +
+                        nivel_instruccion + cobertura_salud +
+                        condicion_actividad + nivel_actividad_fisica,
+              data = ds,
+              link = "logit")
+
+summary(modelo_logit_2)
+
+
+```
+
+```{r matriz confusion logit}
+pred1 <- predict(modelo_logit_2, ds, type = "class")
+tabla_conf <- table(pred1$fit, ds$salud)
+tabla_conf
+```
+
+
+```{r tamaño error logit}
+sum(diag(tabla_conf)) / sum(tabla_conf)
 ```
