@@ -12,30 +12,19 @@ output:
 rm(list = ls()) # remove all objects
 gc() # garbage collection
 
-
 ```
 
 ```{r librerias, warning=FALSE, message=FALSE}
 
 # Importo las librerías que voy a usar
-#install.packages("robustbase")
+library(ordinal)
+library(MASS)
+library(brant) # test de proportional odds
 
 library(tidyverse)
-library(corrr)
-library(knitr)
-library(kableExtra)
 library(GGally)
-library(tidymodels)
-library(rsample)
 library(ggplot2)
-library(robustbase)
-library(ordinal)  #ordinal regression package
-library(vcd)
-library(robustbase)
 library(AER)
-library(rcompanion) #pseudo R square 
-library(MASS) #plyr method (for getting data that allows the test of proportional odds)
-library(brant)# test of proportional odds
 
 ```
 
@@ -55,7 +44,6 @@ cat (getwd())
 
 ds_all <- read.table(paste0("/Users/shared/ENFR-2018-Base usuario.txt"),
                         sep="|", dec=".", header = TRUE, fill = TRUE)
-
 #Vista general del dataset
 glimpse(ds_all)
 
@@ -78,6 +66,7 @@ ds <- ds_all[, c("edad", "condicion_fumador", "sexo", "salud")]
 ds
 
 ```
+
 ```{r valores unicos y faltantes}
 
 #Miro los valores unicos y los datos faltantes
@@ -132,24 +121,6 @@ ggpairs(ds,  mapping = aes(color = condicion_fumador))+
 ```
 
 
-```{r mozaicos}
-
-cols <- c("red", "blue", "green", 'brown', 'yellow')
-mosaicplot(table(ds$condicion_fumador, ds$salud), 
-          main="Mosaico para Fumadores vs salud",
-          xlab="Condición Fumador", 
-          las=1, # Rotar eje y 30 grados
-          ylab="Salud",
-          color = cols)
-
-mosaicplot(table(ds$sexo, ds$salud), 
-          main="Mosaico para sexo vs salud",
-          xlab="sexo", 
-          las=1, # Rotar eje y 30 grados
-          ylab="Salud",
-          color = cols)
-
-```
 
 ```{r ggplots}
 ggplot(ds, aes(x = salud, y = edad, fill = salud)) +   
@@ -160,32 +131,20 @@ ggplot(ds, aes(x = salud, y = edad, fill = salud)) +
 
 
 ```{r asociacion condicion fumador vs salud}
+#install.packages("descr")
+library("descr")
 
-tabla <- table(ds$condicion_fumador, ds$salud)
+crosstab(ds$condicion_fumador, ds$salud, expected = T, prop.r = F, prop.c = F,chisq = T)
 
-# Función phi()
-assoc <- assocstats(tabla)$cramer
-
-# Resultado
-print(assoc)
 ```
 
 ```{r asociacion sexo salud}
-
-tabla <- table(ds$sexo, ds$salud)
-
-# Función phi()
-assoc <- assocstats(tabla)$cramer
-
-# Resultado
-print(assoc)
+crosstab(ds$sexo, ds$salud, expected = T, prop.r = F, prop.c = F,chisq = T)
 ```
-
 
 # Modelo (con Ordinal)
 
 ## logit
-
 
 ```{r modelo 1 - logit}
 
@@ -195,14 +154,7 @@ modelo_logit <- clm(salud~edad + sexo + condicion_fumador,
 
 summary(modelo_logit)
 
-
 ```
-
-```{r nominal test}
-nominal_test(modelo_logit)
-
-```
-
 
 ```{r nuevo dato (ex fumador) a predecir}
 
@@ -240,10 +192,20 @@ eta <- c_edad * dato_ex_fumador$edad + c_sexo_mujer * sexo_mujer +
 
 # Probabilidades 
 
-p_mala <- 1 / (1 + exp(t_r - eta))
-p_regular <- 1 / (1 + exp(t_b - eta)) - p_mala
-p_buena <- 1 / (1 + exp(t_mb - eta)) - p_regular - p_mala  
-p_muybuena <- 1 / (1 + exp(t_eb - eta)) - p_buena - p_regular - p_mala
+logit_mala <- exp(t_r - eta )
+p_mala <- 1 / (1 + logit_mala)
+
+logit_regular <- exp(t_b - eta )
+
+p_regular <- 1 / (1 + logit_regular) - p_mala
+
+logit_buena <- exp(t_mb - eta )
+p_buena <- 1 / (1 + logit_buena) - p_regular - p_mala  
+
+logit_muy_buena <- exp(t_eb - eta )
+p_muybuena <- 1 / (1 + logit_muy_buena) - p_buena - p_regular - p_mala
+
+logit_excelente <- exp(t_eb - (eta) )
 p_excelente <- 1 - (p_mala + p_regular + p_buena + p_muybuena)
 
 
@@ -260,18 +222,18 @@ cat("P(excelente) =", p_excelente, "\n")
 ```{r predecir un valor usando predict}
 
 # Realizar la predicción
-prediccion <- predict(modelo_logit, dato_ex_fumador, type = "p")
+prediccion_logit <- predict(modelo_logit, dato_ex_fumador, type = "p")
 
 # Mostrar las probabilidades
-print(prediccion)
+print(prediccion_logit)
 
 # Realizar la predicción
-prediccion <- predict(modelo_logit, dato_ex_fumador, type = "class")
-print(prediccion)
+prediccion_clase <- predict(modelo_logit, dato_ex_fumador, type = "class")
+print(prediccion_clase)
 
 ```
 
-```{r nuevo dato ( fumador) a predecir}
+```{r nuevo dato (fumador) a predecir}
 
 # Crear un nuevo data frame con los datos para la predicción
 dato_fumador <- data.frame(
@@ -281,14 +243,10 @@ dato_fumador <- data.frame(
 )
 
 # Realizar la predicción
-prediccion <- predict(modelo_logit, dato_fumador, type = "p")
+prediccion_fumador <- predict(modelo_logit, dato_fumador, type = "p")
 
-# Mostrar las probabilidades
-print(prediccion)
-
-# Realizar la predicción
-prediccion <- predict(modelo_logit, dato_fumador, type = "class")
-print(prediccion)
+print(prediccion_logit)
+print(prediccion_fumador)
 
 ```
 
@@ -298,24 +256,9 @@ tabla_conf <- table(pred1$fit, ds$salud)
 tabla_conf
 ```
 
-```{r comprobaciones logit}
-n_excelente <- sum(ds$salud == 'muy buena')
-n_excelente
-#excelentes
-#423 + 2465+25
-
-#muy buenos
-#672+6727+63
-
-```
-
-
 ```{r tamaño error logit}
 sum(diag(tabla_conf)) / sum(tabla_conf)
-
 ```
-
-El tamaño de error del modelo es de 41% de los casos.
 
 ##probit
 
@@ -325,13 +268,7 @@ modelo_probit <- clm(salud~edad + sexo + condicion_fumador,
               data = ds,
               link = "probit")
 
-
 summary(modelo_probit)
-
-```
-
-```{r nominal test}
-nominal_test(modelo_probit)
 
 ```
 
@@ -365,7 +302,6 @@ t_r <- coef(modelo_probit)["regular|mala"]
 sexo_mujer <- dato_ex_fumador$sexo == 'Mujer'
 cond_fumador_ex <- dato_ex_fumador$condicion_fumador == 'Ex fumador'
 cond_fumador_no <- dato_ex_fumador$condicion_fumador == 'No fumador'
-
 
 # Linear predictor
 eta <- c_edad*dato_ex_fumador$edad +  c_sexo_mujer*sexo_mujer +  
@@ -404,17 +340,25 @@ prediccion <- predict(modelo_probit, dato_ex_fumador, type = "p")
 
 # Mostrar las probabilidades
 print(prediccion)
+prediccion_logit
 
 # Realizar la predicción
-prediccion <- predict(modelo_probit, dato_ex_fumador, type = "class")
-print(prediccion)
+#prediccion <- predict(modelo_probit, dato_ex_fumador, type = "class")
+#print(prediccion)
+
 
 ```
+
 ```{r matriz confusion logit}
 pred1 <- predict(modelo_probit, ds[, c('sexo', 'condicion_fumador', 'edad') ], type = "class")
 tabla_conf <- table(pred1$fit, ds$salud)
 tabla_conf
 ```
+
+```{r tamaño error logit}
+sum(diag(tabla_conf)) / sum(tabla_conf)
+```
+
 # Modelo con MASS
 ## Logit
 ```{r modelo logit con MASS}
@@ -458,7 +402,6 @@ names(ds_all)[names(ds_all) == "bhcv07"] <- "tiene_agua"
 names(ds_all)[names(ds_all) == "bhcv08"] <- "tipo_agua"
 names(ds_all)[names(ds_all) == "bhcv09"] <- "tiene_bano"
 names(ds_all)[names(ds_all) == "bhih01"] <- "ingreso_hogar"
-names(ds_all)[names(ds_all) == "biaf07_m"] <- "minutos_sentado"
 names(ds_all)[names(ds_all) == "bipc03"] <- "controla_peso"
 names(ds_all)[names(ds_all) == "bipc04"] <- "peso_autoreportado"
 
@@ -468,7 +411,7 @@ names(ds_all)[names(ds_all) == "condicion_actividad"] <- "condicion_actividad"
 names(ds_all)[names(ds_all) == "nivel_actividad_fisica"] <- "nivel_actividad_fisica"
 
 
-ds <- ds_all[, c("edad", "condicion_fumador", "sexo", "tiene_agua","tipo_agua","tiene_bano", "ingreso_hogar", "minutos_sentado", "controla_peso", "peso_autoreportado", 'nivel_instruccion', 'cobertura_salud', 'condicion_actividad', 'nivel_actividad_fisica', "salud")]
+ds <- ds_all[, c("edad", "condicion_fumador", "sexo", "tiene_agua","tipo_agua","tiene_bano", "controla_peso", "peso_autoreportado", 'nivel_instruccion', 'cobertura_salud', 'condicion_actividad', 'nivel_actividad_fisica', "salud")]
 ds
 
 ```
@@ -498,9 +441,6 @@ ds$tipo_agua<- factor(ds$tipo_agua,
 ds$tiene_bano <- ds$tiene_bano == "1"
 
 
-#"ingreso_hogar" no tengo que hacer nada
-#"minutos_sentado" no tengo que hacer nada
-
 ds$controla_peso <- ds$controla_peso == "1"
 
 #"peso_autoreportado" no tengo que hacer nada
@@ -515,24 +455,13 @@ ds$condicion_actividad<- factor(ds$condicion_actividad,
 ds$nivel_actividad_fisica<- factor(ds$nivel_actividad_fisica,
                          levels = c(1,2,3))  #label sex
 
-ds$minutos_sentado <- as.integer(ds$minutos_sentado)
-
 
 ds
 ```
 
-```{r}
-#ds$minutos_sentado
-glimpse(ds)
-print (any(is.na(ds$minutos_sentado)))
-#ds <- na.omit(ds)
-
-```
 
 
 ```{r modelo logit 2}
-
-#"edad", "condicion_fumador", "sexo", "tiene_agua","tipo_agua","tiene_bano", "ingreso_hogar", "minutos_sentado", "controla_peso", "peso_autoreportado", 'nivel_instruccion', #'cobertura_salud', 'condicion_actividad', 'nivel_actividad_fisica', "salud")
 
 
 #ingreso_hogar
