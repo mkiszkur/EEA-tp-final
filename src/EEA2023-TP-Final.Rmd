@@ -31,6 +31,12 @@ library(rsample)
 library(ggplot2)
 library(robustbase)
 library(ordinal)  #ordinal regression package
+library(vcd)
+library(robustbase)
+library(AER)
+library(rcompanion) #pseudo R square 
+library(MASS) #plyr method (for getting data that allows the test of proportional odds)
+library(brant)# test of proportional odds
 
 ```
 
@@ -106,49 +112,8 @@ ds
 ```
 
 
-```{r rango etario}
-#Confirmamos que no hay registros de gente menor de 18 años
-ds_mayores <- ds[ds$edad >= 18,]
 
-# Contar registros con bhch04 >= 18
-n_mayor18 <- nrow(ds_mayores)
-
-# Contar registros con bhch04 < 18 
-n_menor18 <- nrow(ds) - n_mayor18
-
-# Imprimir recuentos
-print(paste("Registros con edad >= 18:", n_mayor18))
-print(paste("Registros con edad < 18:", n_menor18))
-```
-
-
-
-
-
-
-Ahora vamos a mirar algunas métricas descriptivas de las distintas variable numéricas del dataset.
-
-```{r Metricas descriptivas}
-
-#Miramos el mínimo, la media, etc. de las variables.
-metricas <- ds %>%
-      select_if(is.numeric) %>% 
-      gather(., 
-             key = "variable", 
-             value = "valores") %>% # agrupamos por las variables del set
-             group_by(variable) %>%
-                  summarise(minimo = min(valores),
-                            media = mean(valores),
-                            mediana = median(valores),
-                            desvio = sd(valores),
-                            maximo = max(valores) ) %>% 
-                                      arrange(variable) # orden
-metricas
-
-```
-
-
-```{r relacion entre variables numericas, message=FALSE, warning=FALSE, fig.width=8, fig.height=8}
+```{r relacion entre variables, message=FALSE, warning=FALSE, fig.width=8, fig.height=8}
 
 #Miro la relación entre las variables 
 
@@ -156,44 +121,12 @@ ggpairs(ds,  mapping = aes(color = sexo))+
   theme(axis.text.x = element_text(angle = 30, hjust = 1))
 
 ggpairs(ds,  mapping = aes(color = condicion_fumador))+
-  theme(axis.text.x = element_text(angle = 30, hjust = 1))+
-  scale_color_manual(values = c('No Fumador' = 'blue', 'Fumador' = 'red'))
-
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
 ```
-
-La interpretación de un gráfico de mosaico se basa en observar el tamaño de las celdas y la distribución:
-
-El tamaño de cada celda es proporcional a la frecuencia de cada combinación de categorías. Es decir, celdas más grandes significan más casos.
-La posición y agrupación de las celdas permite observar la distribución conjunta de las variables. Celdas grandes cercanas indican asociación entre esas categorías.
-Se puede comparar visualmente si hay más o menos casos entre categorías, tanto entre niveles de una misma variable (filas/columnas) como entre la interacción de ambas variables.
-Por ejemplo, en un mosaico con "Fumadores (Si/No)" y "Sexo (Hombre/Mujer)", podríamos interpretar cosas como:
-
-Hay más hombres fumadores que mujeres (la celda es más grande).
-Parece haber asociación entre ser Hombre y ser Fumador (celdas grandes cercanas).
-Hay más mujeres no fumadoras que hombres no fumadores.
-En resumen, el tamaño y la posición de las celdas del mosaico revelan la distribución, frecuencias y asociación entre dos o más variables categóricas. ¡Mientras más grande y más cerca, más asociación entre esas categorías!
-
-Se complementa bien con test estadísticos, pero de forma visual resume relaciones interesantes en los datos.
-
-
-Existe una relación importante entre el ancho y el alto de las celdas en el gráfico de mosaico:
-
-El área de cada celda (ancho x alto) es proporcional al número de casos en esa combinación de categorías. Es decir, celdas de mayor área representan más casos.
-El ancho de cada celda representa la proporción de casos en esa categoría respecto al total de su grupo o fila del mosaico.
-De forma similar, el alto representa la proporción de casos por columna o grupo del mosaico.
-Así que podríamos decir que:
-
-El ancho compara proporciones dentro de cadacategoría de la variable de filas (ej. Hombres Fumadores vs todos los Hombres).
-El alto compara proporciones dentro de la variable de columnas (ej. Hombres Fumadores vs todas las personas Fumadoras).
-El área de la celda indica la cantidad de casos en términos absolutos.
-En resumen, el ancho y alto revelan proporciones y comparaciones dentro de cada variable/grupo, mientras que el área de la celda como producto de ambos indica la frecuencia absoluta de casos. ¡Juntos permiten hacer análisis relativos y absolutos!
-
-
-
 
 
 ```{r mozaicos}
-library(vcd)
+
 cols <- c("red", "blue", "green", 'brown', 'yellow')
 mosaicplot(table(ds$condicion_fumador, ds$salud), 
           main="Mosaico para Fumadores vs salud",
@@ -203,7 +136,7 @@ mosaicplot(table(ds$condicion_fumador, ds$salud),
           color = cols)
 
 mosaicplot(table(ds$sexo, ds$salud), 
-          main="Mosaico para Fumadores vs salud",
+          main="Mosaico para sexo vs salud",
           xlab="sexo", 
           las=1, # Rotar eje y 30 grados
           ylab="Salud",
@@ -211,34 +144,12 @@ mosaicplot(table(ds$sexo, ds$salud),
 
 ```
 
-```{r}
+```{r ggplots}
 ggplot(ds, aes(x = salud, y = edad, fill = salud)) +   
   geom_boxplot(size = .75) +   facet_grid(condicion_fumador ~ sexo, margins = FALSE) +   
   theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
 ```
 
-
-Se utiliza la función assocstats() del paquete vcd en R. Esta función calcula estadísticos de asociación para tablas mayores que 2x2, incluyendo el coeficiente de contingencia de Pearson (Cramer's V).
-
-Este coeficiente varía también entre 0 y 1, donde 0 = no asociación y 1 = máxima asociación. Se interpreta de manera similar a phi.
-
-Es una muy buena alternativa para variables categóricas con múltiples valores (>2)
-
- Un coeficiente de contingencia de Pearson de 0.044 indica que existe una asociación débil entre las dos variables categóricas analizadas en la tabla de contingencia.
-
-Como regla general, se suele interpretar este coeficiente de la siguiente manera:
-
-* 0 a 0.1 = Asociación débil o nula
-* >0.1 a 0.3 = Asociación baja 
-* >0.3 a 0.6 = Asociación moderada
-* >0.6 a 0.8 = Asociación fuerte
-* >0.8 a 1 = Asociación muy fuerte
-
-Por lo tanto, un valor de 0.044 se considera una asociación prácticamente débil o nula entre las variables categóricas. Esto implica que sabiendo el valor de una variable no te permite predecir o estar muy seguro del valor que tendrá la otra variable.
-
-Se podría decir que son relativamente independientes, su conocimiento conjunto no aporta mucho más que conocerlas por separado. No permite realizar inferencias o predicciones cruzadas con alta certeza.
-
-En conclusión, el bajo coeficiente de contingencia de Pearson obtenido indica que las variables categóricas en la tabla tienen una asociación débil o casi nula entre sí.
 
 
 ```{r asociacion condicion fumador vs salud}
@@ -263,55 +174,24 @@ assoc <- assocstats(tabla)$cramer
 print(assoc)
 ```
 
-```{r}
-ds
-new_data <- ds[sample(nrow(ds), 1), ]
-new_data <- new_data[ , 1:ncol(new_data), drop = FALSE]  # Mantener como un data.frame
-rownames(new_data) <- NULL  # Restablecer el índice
-new_data
-
-```
 
 # Modelo (con Ordinal)
 
 ## logit
-
-Intercepto para las categorías de "salud":
-
-Excelente|muy buena: -1.00904
-Muy buena|buena: 0.66193
-Buena|regular: 2.61548
-Regular|mala: 4.99800
-Estos valores representan los puntos de corte (thresholds) entre las categorías ordinales de "salud".
-
-Coeficientes para las variables predictoras:
-
-Edad: El coeficiente es 0.0294458. Esto significa que, manteniendo constantes las otras variables, por cada aumento de una unidad en la edad, se espera un aumento del log-odds de "salud" en 0.0294458. Dado que la edad es positiva, se espera que a medida que la edad aumenta, la categoría de "salud" también tenga más probabilidad de aumentar.
-
-Sexo (Mujer): El coeficiente es 0.2553960. Esto significa que, en comparación con los hombres (tomados como referencia), las mujeres tienen una probabilidad más alta de pertenecer a una categoría superior de "salud".
-
-Condición de fumador (Ex fumador y No fumador): Los coeficientes son -0.1715150 y -0.2879516, respectivamente. Estos valores indican que, en comparación con aquellos que no son ex fumadores o no fumadores (tomados como referencia), los ex fumadores y los no fumadores tienen menos probabilidad de pertenecer a una categoría superior de "salud".
-
-Significancia estadística:
-
-Cada coeficiente tiene su propio valor p ("Pr(>|z|)"). Los valores pequeños (por ejemplo, < 0.05) indican que el coeficiente es significativamente diferente de cero. En tu caso, todos los coeficientes son significativos, ya que todos los valores p son muy pequeños.
 
 
 ```{r modelo 1 - logit}
 
 modelo_logit <- clm(salud~edad + sexo + condicion_fumador,
               data = ds,
-              link = "logit",
-              Hess = TRUE)
+              link = "logit")
 
 
 summary(modelo_logit)
 
 
 ```
-Add all model terms to scale and nominal formulae and perform likelihood ratio tests. These tests
-can be viewed as goodness-of-fit tests. With the logit link, nominal_test provides likelihood ratio
-tests of the proportional odds assumption. The scale_test tests can be given a similar interpretation
+
 ```{r nominal test}
 nominal_test(modelo_logit)
 
@@ -328,19 +208,20 @@ dato <- data.frame(
 )
 ```
 
+
 ```{r predecir manualmente}
 
 # Coeficientes del modelo
-c_edad <- 0.0294458  
-c_sexo_mujer <- 0.2553960
-c_ex_fumador <- -0.1715150 
-c_no_fumador <- -0.2879516
+c_edad <- coef(modelo_logit)['edad']
+c_sexo_mujer <- coef(modelo_logit)['sexoMujer']
+c_ex_fumador <- coef(modelo_logit)["condicion_fumadorEx fumador"] 
+c_no_fumador <- coef(modelo_logit)["condicion_fumadorNo fumador"]
 
 # Thresholds
-t_eb <- -1.00904    
-t_mb <- 0.66193
-t_b <- 2.61548
-t_r <- 4.99800
+t_eb <- coef(modelo_logit)["excelente|muy buena"]    
+t_mb <- coef(modelo_logit)["muy buena|buena"]
+t_b <- coef(modelo_logit)["buena|regular"]
+t_r <- coef(modelo_logit)["regular|mala"]
 
 # Dummy coding de variables categóricas
 sexo_mujer <- dato$sexo == 'Mujer'
@@ -371,7 +252,6 @@ cat("P(excelente) =", p_excelente, "\n")
 
 
 ```{r predecir un valor usando predict}
-
 
 # Realizar la predicción
 prediccion <- predict(modelo_logit, dato, type = "p")
@@ -415,12 +295,10 @@ El tamaño de error del modelo es de 41% de los casos.
 
 modelo_probit <- clm(salud~edad + sexo + condicion_fumador,
               data = ds,
-              link = "probit",
-              Hess = TRUE)
+              link = "probit")
 
 
 summary(modelo_probit)
-
 
 ```
 
@@ -440,18 +318,20 @@ dato <- data.frame(
 )
 ```
 
+
+
 ```{r predecir manualmente}
-# Coeficientes
-b_edad <- 0.0169304 
-b_sexoMujer <- 0.1509301
-b_exfumador <- -0.0935019
-b_nofumador <- -0.1610974
+# Coeficientes del modelo
+c_edad <- coef(modelo_probit)['edad']
+c_sexo_mujer <- coef(modelo_probit)['sexoMujer']
+c_ex_fumador <- coef(modelo_probit)["condicion_fumadorEx fumador"] 
+c_no_fumador <- coef(modelo_probit)["condicion_fumadorNo fumador"]
 
 # Thresholds
-t_r <- 2.77158
-t_b <- 1.55066    
-t_mb <- 0.36601
-t_eb <- -0.58504
+t_eb <- coef(modelo_probit)["excelente|muy buena"]    
+t_mb <- coef(modelo_probit)["muy buena|buena"]
+t_b <- coef(modelo_probit)["buena|regular"]
+t_r <- coef(modelo_probit)["regular|mala"]
 
 # Dummy coding de variables categóricas
 sexo_mujer <- dato$sexo == 'Mujer'
@@ -460,8 +340,8 @@ cond_fumador_no <- dato$condicion_fumador == 'No fumador'
 
 
 # Linear predictor
-eta <- b_edad*dato$edad + b_sexoMujer*sexo_mujer +  
-       b_exfumador*cond_fumador_ex + b_nofumador*cond_fumador_no
+eta <- c_edad*dato$edad +  c_sexo_mujer*sexo_mujer +  
+       c_ex_fumador*cond_fumador_ex + c_no_fumador*cond_fumador_no
        
 # Probabilidad de mala
 # Prob de mala 
@@ -506,4 +386,40 @@ print(prediccion)
 pred1 <- predict(modelo_probit, ds[, c('sexo', 'condicion_fumador', 'edad') ], type = "class")
 tabla_conf <- table(pred1$fit, ds$salud)
 tabla_conf
+```
+# Modelo con MASS
+## Logit
+```{r}
+modelt_logit <- polr(salud~edad + sexo + condicion_fumador,
+               data = ds,
+               Hess=TRUE)
+
+#Tratar de buscar si hay otra forma de chequear supuestos en el clm.
+
+summary(modelt_logit)
+
+
+brant(modelt_logit)
+
+
+coeftest(modelt_logit)
+```
+
+
+## Probit
+
+```{r}
+modelt_probit <- polr(salud~edad + sexo + condicion_fumador,
+               data = ds,
+               method = "probit",
+               Hess=TRUE)
+
+#Tratar de buscar si hay otra forma de chequear supuestos en el clm.
+
+brant(modelt_probit)
+
+summary(modelt_probit)
+
+coeftest(modelt_probit)
+
 ```

@@ -90,9 +90,6 @@ summary(model1)
 #Cuanto me da la probabilidad de caer en cada categoria manualmente 
 #luego hacer el predic
 
-new_data <- data.frame("sexo"= "Varón","edad" = 25,"condicion_fumador"="Ex fumador")
-df_ENFR_2018$edad
-round(predict(model1,new_data,type = "p"), 3)
 
 confint(model1)
 exp(coef(model1))
